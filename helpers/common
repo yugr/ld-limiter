@@ -9,6 +9,7 @@ error() {
 
 if test $(basename $0) = ld-limit; then
   ROOT=$(dirname $0)
+  mkdir -p $ROOT/state
   export LD_LIMIT_LOCK=$ROOT/state/lock.$$
   export LD_LIMIT_JOBS_FILE=$ROOT/state/job_pool
 else
