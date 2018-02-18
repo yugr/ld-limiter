@@ -1,0 +1,61 @@
+#!/bin/sh
+
+set -eu
+
+if test $LD_LIMIT_VERBOSE -ge 2; then
+  set -x
+fi
+
+ME=$(basename $0)
+ROOT=$(dirname $0)/..
+
+source $ROOT/helpers/common
+
+while true; do
+  # First acquire a lock to access semaphore
+  lock
+
+  # Check if we can run more jobs
+  JOBS=$(cat $LD_LIMIT_JOBS_FILE)
+  if test $JOBS -le 0; then
+    # We can't so release and retry after timeout.
+    # We could use named pipes but they less portable.
+    unlock
+    sleep $LD_LIMIT_TIMEOUT
+    continue
+  fi
+
+  echo $((JOBS - 1)) > $LD_LIMIT_JOBS_FILE
+  unlock
+
+  break
+done
+
+# Remove ourselves from PATH
+# TODO: take second line of which(1) instead?
+NEW_PATH=
+IFS=:
+for D in $PATH; do
+  if test -f $D/$ME; then
+    if test $(readlink -f $D/$ME) = $(readlink -f $0); then
+      continue
+    fi
+  fi
+  NEW_PATH="${NEW_PATH:+$NEW_PATH:}$D"
+done
+IFS=' '
+
+if test $LD_LIMIT_VERBOSE -gt 0; then
+  echo "NEW_PATH=$NEW_PATH"
+fi
+
+atexit() {
+  lock
+  JOBS=$(cat $LD_LIMIT_JOBS_FILE)
+  echo $((JOBS + 1)) > $LD_LIMIT_JOBS_FILE
+  unlock
+}
+trap 'atexit' EXIT
+
+# Finally run true linker
+PATH="$NEW_PATH" $ME "$@"

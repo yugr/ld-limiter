@@ -1,0 +1,98 @@
+#!/bin/sh
+
+set -eu
+
+MAX_JOBS=1
+T=5
+V=0
+
+error() {
+  echo >&2 "$(basename $0): error: $@"
+  exit 1
+}
+
+usage() {
+  cat <<EOF
+Syntax: $(basename $0) [OPT]... PROG ARG...
+A simple limiter for number of parallel linker invocations.
+
+Options:
+  -n N            Allow up to N linker jobs (default $MAX_JOBS).
+  -t T            Wait T seconds between retries (default $T).
+  -v, --verbose   Print diagnostic info.
+EOF
+  exit 1
+}
+
+while true; do
+  test $# -gt 0 || break
+  case "$1" in
+    -h | --help)
+      usage
+      ;;
+    -n)
+      MAX_JOBS="$2"
+      shift 2
+      ;;
+    -n*)
+      MAX_JOBS=$(echo "$1" | sed 's/^-n//')
+      shift
+      ;;
+    -t)
+      T="$2"
+      shift 2
+      ;;
+    -t*)
+      T=$(echo "$1" | sed 's/^-t//')
+      shift
+      ;;
+    -v | --verbose)
+      V=$((V + 1))
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      error "unknown option: $1"
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if test $MAX_JOBS -lt 1; then
+  error "incorrect number of jobs: $MAX_JOBS"
+fi
+
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+if test $V -ge 2; then
+  set -x
+fi
+
+source $(dirname $0)/helpers/common
+
+# Reset job count.
+if ! mkdir $LD_LIMIT_LOCK; then
+  error "stale lock $LD_LIMIT_LOCK exists, please ensure no active linkers use it and then remove it"
+fi
+if test -f $LD_LIMIT_JOBS_FILE; then
+  if test $(cat $LD_LIMIT_JOBS_FILE) != 0; then
+    error "stale job file $LD_LIMIT_JOBS_FILE exists, please ensure no active linkers use it and then remove it"
+  fi
+fi
+echo $MAX_JOBS > $LD_LIMIT_JOBS_FILE
+unlock
+
+trap "rm -rf $LD_LIMIT_JOBS_FILE $LD_LIMIT_LOCK" EXIT
+
+BIN=$(readlink -f $(dirname $0))/bin
+PATH="$BIN${PATH:+:$PATH}" \
+  LD_LIMIT_TIMEOUT=$T \
+  LD_LIMIT_VERBOSE=$V \
+  "$@"

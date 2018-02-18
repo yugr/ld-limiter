@@ -1,0 +1,33 @@
+#!/bin/sh
+
+set -eu
+
+error() {
+  echo >&2 "$(basename $0): error: $@"
+  exit 1
+}
+
+if test $(basename $0) = ld-limit; then
+  ROOT=$(dirname $0)
+  export LD_LIMIT_LOCK=$ROOT/state/lock.$$
+  export LD_LIMIT_JOBS_FILE=$ROOT/state/job_pool
+else
+  ROOT=$(dirname $0)/..
+  if test -z "${LD_LIMIT_LOCK:-}"; then
+    error 'LD_LIMIT_LOCK not set'
+  fi
+fi
+
+lock() {
+  while ! mkdir $LD_LIMIT_LOCK; do
+    sleep 1
+  done
+  # Race condition here, if we are interrupted
+  trap "rmdir $LD_LIMIT_LOCK" EXIT
+}
+
+unlock() {
+  rmdir $LD_LIMIT_LOCK
+  # And here
+  trap '' EXIT
+}
